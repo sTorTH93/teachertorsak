@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   Plus,
@@ -15,6 +15,10 @@ import {
   Shield,
   Layers,
   FileSpreadsheet,
+  Lock,
+  LockOpen,
+  Eye,
+  X,
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import CreateClassroomModal from '@/components/CreateClassroomModal';
@@ -28,11 +32,115 @@ import {
   setupRealtimeSync,
 } from '@/lib/storage';
 
+// ---- Admin PIN (master password for homepage management) ----
+// Change this PIN to whatever you like
+const ADMIN_PIN = '1234';
+
+// ---- Admin PIN Modal ----
+function AdminPinModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPin('');
+      setError('');
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pin === ADMIN_PIN) {
+      onSuccess();
+      onClose();
+    } else {
+      setError('รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่');
+      setPin('');
+      inputRef.current?.focus();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl w-full max-w-sm p-6 space-y-5 border border-zinc-200 dark:border-zinc-800">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">โหมดครู</h2>
+              <p className="text-xs text-zinc-500">กรอก PIN เพื่อเข้าสู่โหมดจัดการ</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              รหัส PIN ครู
+            </label>
+            <input
+              ref={inputRef}
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => {
+                setPin(e.target.value);
+                setError('');
+              }}
+              placeholder="••••"
+              className="w-full px-4 py-3 text-center text-2xl tracking-[0.5em] rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {error && (
+              <p className="text-xs text-rose-600 dark:text-rose-400 text-center">{error}</p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={pin.length === 0}
+            className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-bold transition-all"
+          >
+            เข้าสู่โหมดครู
+          </button>
+        </form>
+
+        <p className="text-center text-xs text-zinc-400">
+          นักเรียนสามารถดูรายชื่อห้องและเข้าเช็คงานได้โดยไม่ต้องกรอก PIN
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---- Main Page ----
 export default function HomePage() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -95,9 +203,22 @@ export default function HomePage() {
           </div>
 
           <div className="relative z-10 max-w-2xl space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5" /> ใช้งานง่ายในชั่วโมงเรียน • เปิดใช้ได้ทันที
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur text-xs font-semibold">
+                <Sparkles className="w-3.5 h-3.5" /> ใช้งานง่ายในชั่วโมงเรียน • เปิดใช้ได้ทันที
+              </div>
+              {/* Mode Badge */}
+              {isAdminMode ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/25 text-amber-200 text-xs font-semibold border border-amber-300/30">
+                  <LockOpen className="w-3 h-3" /> โหมดครู (จัดการ)
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-blue-100 text-xs font-semibold border border-white/20">
+                  <Eye className="w-3 h-3" /> โหมดนักเรียน (อ่านอย่างเดียว)
+                </div>
+              )}
             </div>
+
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
               ระบบเช็คงานนักเรียนในชั่วโมงเรียน
             </h1>
@@ -107,12 +228,31 @@ export default function HomePage() {
             </p>
 
             <div className="pt-2 flex flex-wrap gap-3">
-              <button
-                onClick={() => setIsCreateOpen(true)}
-                className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-blue-700 hover:bg-blue-50 text-sm font-bold shadow-lg shadow-black/10 transition-all hover:scale-[1.02]"
-              >
-                <Plus className="w-4 h-4" /> สร้างห้องเรียนใหม่
-              </button>
+              {/* Admin Mode: show create + logout */}
+              {isAdminMode ? (
+                <>
+                  <button
+                    onClick={() => setIsCreateOpen(true)}
+                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-blue-700 hover:bg-blue-50 text-sm font-bold shadow-lg shadow-black/10 transition-all hover:scale-[1.02]"
+                  >
+                    <Plus className="w-4 h-4" /> สร้างห้องเรียนใหม่
+                  </button>
+                  <button
+                    onClick={() => setIsAdminMode(false)}
+                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/15 hover:bg-white/25 text-white text-sm font-semibold transition-all border border-white/25"
+                  >
+                    <Lock className="w-4 h-4" /> ออกจากโหมดครู
+                  </button>
+                </>
+              ) : (
+                /* Student Mode: show unlock button */
+                <button
+                  onClick={() => setIsPinModalOpen(true)}
+                  className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/15 hover:bg-white/25 text-white text-sm font-semibold transition-all border border-white/25"
+                >
+                  <Lock className="w-4 h-4" /> สำหรับครู (กรอก PIN)
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -178,12 +318,36 @@ export default function HomePage() {
                 />
               </div>
 
-              <button
-                onClick={() => setIsCreateOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-500/20 whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4" /> สร้างห้องใหม่
-              </button>
+              {/* Only show "สร้างห้องใหม่" button in admin mode */}
+              {isAdminMode && (
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-500/20 whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" /> สร้างห้องใหม่
+                </button>
+              )}
+
+              {/* Admin lock/unlock toggle button (small, discreet) */}
+              {!isAdminMode && (
+                <button
+                  onClick={() => setIsPinModalOpen(true)}
+                  title="โหมดครู"
+                  className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-400 hover:text-blue-600 hover:border-blue-400 transition-colors shadow-sm"
+                >
+                  <Lock className="w-4 h-4" />
+                </button>
+              )}
+
+              {isAdminMode && (
+                <button
+                  onClick={() => setIsAdminMode(false)}
+                  title="ออกจากโหมดครู"
+                  className="p-2 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 text-amber-600 hover:bg-amber-100 transition-colors shadow-sm"
+                >
+                  <LockOpen className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -195,14 +359,18 @@ export default function HomePage() {
               <BookOpen className="w-12 h-12 text-zinc-300 mx-auto" />
               <h3 className="font-bold text-sm text-zinc-700 dark:text-zinc-300">ยังไม่พบห้องเรียน</h3>
               <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-                เริ่มต้นด้วยการคลิกปุ่ม "สร้างห้องเรียนใหม่" ด้านบนเพื่อเพิ่มวิชาและรายชื่อนักเรียน
+                {isAdminMode
+                  ? 'คลิกปุ่ม "สร้างห้องเรียนใหม่" ด้านบนเพื่อเพิ่มวิชาและรายชื่อนักเรียน'
+                  : 'ยังไม่มีห้องเรียนในระบบ หรือกำลังโหลดข้อมูล...'}
               </p>
-              <button
-                onClick={() => setIsCreateOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-xl"
-              >
-                <Plus className="w-4 h-4" /> สร้างห้องเรียนแรก
-              </button>
+              {isAdminMode && (
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-xl"
+                >
+                  <Plus className="w-4 h-4" /> สร้างห้องเรียนแรก
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -222,13 +390,16 @@ export default function HomePage() {
                         </h3>
                       </div>
 
-                      <button
-                        onClick={() => handleDelete(cls.id, cls.name, cls.teacherPin)}
-                        className="p-1.5 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"
-                        title="ลบห้องเรียน"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Delete button: only visible in admin mode */}
+                      {isAdminMode && (
+                        <button
+                          onClick={() => handleDelete(cls.id, cls.name, cls.teacherPin)}
+                          className="p-1.5 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"
+                          title="ลบห้องเรียน"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
 
                     <p className="text-xs text-zinc-500">
@@ -270,6 +441,13 @@ export default function HomePage() {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreated={handleCreated}
+      />
+
+      {/* Admin PIN Modal */}
+      <AdminPinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={() => setIsAdminMode(true)}
       />
     </div>
   );
