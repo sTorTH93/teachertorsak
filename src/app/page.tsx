@@ -34,7 +34,7 @@ import {
 
 // ---- Admin PIN (master password for homepage management) ----
 // Change this PIN to whatever you like
-const ADMIN_PIN = '1234';
+const ADMIN_PIN = '399100';
 
 // ---- Admin PIN Modal ----
 function AdminPinModal({
