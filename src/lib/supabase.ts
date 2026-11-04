@@ -1,7 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const ENV_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const ENV_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Default project credentials for teachertorsak
+export const DEFAULT_SUPABASE_URL = 'https://ubhlpsjyvowskrhenqvx.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_-soozKqDdiVoy0y27vl8Xw_Scqsr9Gc';
+
+const ENV_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const ENV_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
 export const SUPABASE_URL_KEY = 'classcheck_supabase_url';
 export const SUPABASE_ANON_KEY = 'classcheck_supabase_key';
@@ -10,19 +14,19 @@ let cachedClient: SupabaseClient | null = null;
 let cachedKey = '';
 
 export function getSupabaseConfig(): { url: string; key: string; isConfigured: boolean } {
-  if (ENV_URL && ENV_KEY) {
-    return { url: ENV_URL, key: ENV_KEY, isConfigured: true };
-  }
-
   if (typeof window !== 'undefined') {
-    const localUrl = localStorage.getItem(SUPABASE_URL_KEY) || '';
-    const localKey = localStorage.getItem(SUPABASE_ANON_KEY) || '';
+    const localUrl = localStorage.getItem(SUPABASE_URL_KEY);
+    const localKey = localStorage.getItem(SUPABASE_ANON_KEY);
     if (localUrl && localKey) {
       return { url: localUrl, key: localKey, isConfigured: true };
     }
   }
 
-  return { url: '', key: '', isConfigured: false };
+  if (ENV_URL && ENV_KEY) {
+    return { url: ENV_URL, key: ENV_KEY, isConfigured: true };
+  }
+
+  return { url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_ANON_KEY, isConfigured: true };
 }
 
 export function getSupabase(): SupabaseClient | null {
