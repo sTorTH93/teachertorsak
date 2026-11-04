@@ -37,7 +37,7 @@ export default function AssignmentCheckerView({
   );
 
   const currentAssignment = useMemo(() => {
-    return classroom.assignments.find((a) => a.id === selectedAssignmentId);
+    return classroom.assignments.find((a) => a.id === selectedAssignmentId) || classroom.assignments[0];
   }, [classroom.assignments, selectedAssignmentId]);
 
   // Check if current assignment is past deadline
@@ -288,7 +288,7 @@ export default function AssignmentCheckerView({
           <div className="flex-1">
             <label className="block text-xs font-semibold text-zinc-500 mb-1">เลือกงานที่ต้องการเช็คในคาบนี้:</label>
             <select
-              value={selectedAssignmentId}
+              value={currentAssignment?.id || ''}
               onChange={(e) => setSelectedAssignmentId(e.target.value)}
               className="w-full md:max-w-md px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-semibold text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500"
             >

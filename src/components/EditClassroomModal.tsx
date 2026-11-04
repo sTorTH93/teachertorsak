@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { X, Settings, KeyRound, Save } from 'lucide-react';
+import SubjectsEditor from './SubjectsEditor';
 import { Classroom } from '@/types';
 
 interface EditClassroomModalProps {
@@ -18,7 +19,7 @@ export default function EditClassroomModal({
   onSave,
 }: EditClassroomModalProps) {
   const [name, setName] = useState(classroom.name);
-  const [subject, setSubject] = useState(classroom.subject);
+  const [subjects, setSubjects] = useState<string[]>(classroom.subjects);
   const [teacherName, setTeacherName] = useState(classroom.teacherName);
   const [teacherPin, setTeacherPin] = useState(classroom.teacherPin);
   const [repPin, setRepPin] = useState(classroom.repPin);
@@ -27,7 +28,7 @@ export default function EditClassroomModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !subject.trim() || !teacherName.trim()) {
+    if (!name.trim() || subjects.length === 0 || !teacherName.trim()) {
       alert('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
@@ -35,7 +36,8 @@ export default function EditClassroomModal({
     onSave({
       ...classroom,
       name: name.trim(),
-      subject: subject.trim(),
+      subject: subjects[0],
+      subjects,
       teacherName: teacherName.trim(),
       teacherPin: teacherPin.trim() || '1234',
       repPin: repPin.trim() || '5678',
@@ -69,18 +71,7 @@ export default function EditClassroomModal({
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              วิชา <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              required
-              className="w-full px-3 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <SubjectsEditor value={subjects} onChange={setSubjects} locked={[...new Set(classroom.assignments.map(a => a.subject || classroom.subject))]} />
 
           <div>
             <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">

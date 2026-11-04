@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { X, Users, KeyRound, Sparkles } from 'lucide-react';
+import SubjectsEditor from './SubjectsEditor';
+import { DEFAULT_SUBJECTS } from '@/lib/classrooms';
 import { Classroom, Student } from '@/types';
 
 interface CreateClassroomModalProps {
@@ -12,7 +14,7 @@ interface CreateClassroomModalProps {
 
 export default function CreateClassroomModal({ isOpen, onClose, onCreated }: CreateClassroomModalProps) {
   const [name, setName] = useState('');
-  const [subject, setSubject] = useState('');
+  const [subjects, setSubjects] = useState<string[]>([DEFAULT_SUBJECTS[0]]);
   const [teacherName, setTeacherName] = useState('');
   const [teacherPin, setTeacherPin] = useState('1234');
   const [repPin, setRepPin] = useState('5678');
@@ -22,7 +24,7 @@ export default function CreateClassroomModal({ isOpen, onClose, onCreated }: Cre
 
   const handleParseAndCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !subject.trim() || !teacherName.trim()) {
+    if (!name.trim() || subjects.length === 0 || !teacherName.trim()) {
       alert('กรุณากรอกชื่อห้องเรียน วิชา และชื่อครูผู้สอนให้ครบถ้วน');
       return;
     }
@@ -60,10 +62,12 @@ export default function CreateClassroomModal({ isOpen, onClose, onCreated }: Cre
             { id: `std-${Date.now()}-3`, studentNumber: 3, name: 'นักเรียนเลขที่ 3' },
           ];
 
+    const classroomId = crypto.randomUUID();
     const newClassroom: Classroom = {
-      id: `cls-${Date.now()}`,
+      id: classroomId,
       name: name.trim(),
-      subject: subject.trim(),
+      subject: subjects[0],
+      subjects,
       teacherName: teacherName.trim(),
       teacherPin: teacherPin.trim() || '1234',
       repPin: repPin.trim() || '5678',
@@ -72,7 +76,8 @@ export default function CreateClassroomModal({ isOpen, onClose, onCreated }: Cre
       assignments: [
         {
           id: `asn-${Date.now()}-1`,
-          classroomId: `cls-${Date.now()}`,
+          classroomId,
+          subject: subjects[0],
           title: 'งานที่ 1: แบบฝึกหัดในชั้นเรียน',
           description: 'เช็คการส่งงานในคาบเรียน',
           maxScore: 10,
@@ -129,19 +134,7 @@ export default function CreateClassroomModal({ isOpen, onClose, onCreated }: Cre
                 className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                วิชา <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="เช่น คณิตศาสตร์, วิทยาการคำนวณ"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <SubjectsEditor value={subjects} onChange={setSubjects} />
           </div>
 
           <div>

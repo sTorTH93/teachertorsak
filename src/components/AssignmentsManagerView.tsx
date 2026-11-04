@@ -35,6 +35,7 @@ export default function AssignmentsManagerView({
     const newAssignment: Assignment = {
       id: `asn-${Date.now()}`,
       classroomId: classroom.id,
+      subject: classroom.subject,
       title: title.trim(),
       description: description.trim() || undefined,
       maxScore: parseFloat(maxScore) || 10,

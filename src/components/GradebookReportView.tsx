@@ -122,7 +122,7 @@ export default function GradebookReportView({ classroom }: GradebookReportViewPr
       {/* Top Header & Actions */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">สมุดบันทึกคะแนน (Gradebook)</h3>
+          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">สมุดบันทึกคะแนน — {classroom.subject}</h3>
           <p className="text-xs text-zinc-500">สรุปคะแนนรวม และอัตราการส่งงานของนักเรียนทุกคน</p>
         </div>
 

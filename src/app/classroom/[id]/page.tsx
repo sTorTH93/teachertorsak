@@ -22,6 +22,7 @@ import GradebookReportView from '@/components/GradebookReportView';
 import StudentsManagerView from '@/components/StudentsManagerView';
 import PinAuthModal from '@/components/PinAuthModal';
 import EditClassroomModal from '@/components/EditClassroomModal';
+import { classroomForSubject, mergeSubjectClassroom } from '@/lib/classrooms';
 import { Classroom } from '@/types';
 import {
   getClassroom,
@@ -37,6 +38,7 @@ export default function ClassroomPage() {
   const classroomId = params?.id as string;
 
   const [classroom, setClassroom] = useState<Classroom | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [activeTab, setActiveTab] = useState<'CHECK' | 'ASSIGNMENTS' | 'GRADEBOOK' | 'STUDENTS'>('CHECK');
   const [userRole, setUserRole] = useState<'TEACHER' | 'REP' | 'GUEST'>('TEACHER');
   const [showPinModal, setShowPinModal] = useState(false);
@@ -99,9 +101,13 @@ export default function ClassroomPage() {
     );
   }
 
+  const subject = classroom.subjects.includes(selectedSubject) ? selectedSubject : classroom.subjects[0];
+  const subjectClassroom = classroomForSubject(classroom, subject);
+  const handleSubjectUpdate = (updated: Classroom) => handleUpdateClassroom(mergeSubjectClassroom(classroom, updated, subject));
+
   return (
     <div className="min-h-screen bg-zinc-50/60 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col">
-      <Navbar currentClassroomName={`${classroom.name} (${classroom.subject})`} role={userRole} />
+      <Navbar currentClassroomName={`${classroom.name} (${subject})`} role={userRole} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
         {/* Navigation Breadcrumb & Title Header */}
@@ -120,7 +126,7 @@ export default function ClassroomPage() {
                   ห้อง {classroom.name}
                 </h1>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">
-                  {classroom.subject}
+                  {subject}
                 </span>
               </div>
               <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2">
@@ -151,6 +157,11 @@ export default function ClassroomPage() {
           </div>
         </div>
 
+        <label className="flex items-center gap-3 text-sm font-semibold">รายวิชา
+          <select aria-label="เลือกรายวิชา" value={subject} onChange={e => setSelectedSubject(e.target.value)} className="px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900">
+            {classroom.subjects.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
         {/* Tab Navigation */}
         <div className="flex border-b border-zinc-200 dark:border-zinc-800 gap-2 overflow-x-auto">
           <button
@@ -186,7 +197,7 @@ export default function ClassroomPage() {
             }`}
           >
             <Settings className="w-4 h-4" />
-            <span>จัดการงาน ({classroom.assignments.length})</span>
+            <span>จัดการงาน ({subjectClassroom.assignments.length})</span>
           </button>
 
           <button
@@ -205,18 +216,20 @@ export default function ClassroomPage() {
         {/* Tab Content */}
         {activeTab === 'CHECK' && (
           <AssignmentCheckerView
-            classroom={classroom}
-            onUpdateClassroom={handleUpdateClassroom}
+            key={subject}
+            classroom={subjectClassroom}
+            onUpdateClassroom={handleSubjectUpdate}
             userRole={userRole}
           />
         )}
 
-        {activeTab === 'GRADEBOOK' && <GradebookReportView classroom={classroom} />}
+        {activeTab === 'GRADEBOOK' && <GradebookReportView classroom={subjectClassroom} />}
 
         {activeTab === 'ASSIGNMENTS' && (
           <AssignmentsManagerView
-            classroom={classroom}
-            onUpdateClassroom={handleUpdateClassroom}
+            key={subject}
+            classroom={subjectClassroom}
+            onUpdateClassroom={handleSubjectUpdate}
             userRole={userRole}
           />
         )}
@@ -239,12 +252,12 @@ export default function ClassroomPage() {
       />
 
       {/* Edit Classroom Modal */}
-      <EditClassroomModal
+      {showEditClassModal && <EditClassroomModal
         isOpen={showEditClassModal}
         onClose={() => setShowEditClassModal(false)}
         classroom={classroom}
         onSave={handleUpdateClassroom}
-      />
+      />}
     </div>
   );
 }

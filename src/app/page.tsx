@@ -25,7 +25,8 @@ import CreateClassroomModal from '@/components/CreateClassroomModal';
 import { Classroom } from '@/types';
 import {
   getClassrooms,
-  saveClassrooms,
+  saveClassroom,
+  reorderClassrooms,
   deleteClassroom,
   syncFromCloud,
   subscribeToClassrooms,
@@ -136,6 +137,9 @@ function AdminPinModal({
 // ---- Main Page ----
 export default function HomePage() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [orderFailed, setOrderFailed] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [orderMessage, setOrderMessage] = useState('');
   const [search, setSearch] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -168,9 +172,7 @@ export default function HomePage() {
   }, []);
 
   const handleCreated = (newClass: Classroom) => {
-    const updated = [newClass, ...classrooms];
-    setClassrooms(updated);
-    saveClassrooms(updated);
+    saveClassroom({ ...newClass, sortOrder: Math.min(0, ...classrooms.map(c => c.sortOrder ?? 0)) - 1 });
   };
 
   const handleDelete = (id: string, name: string, pin: string) => {
@@ -184,10 +186,28 @@ export default function HomePage() {
     setClassrooms(classrooms.filter((c) => c.id !== id));
   };
 
+  const moveClassroom = async (id: string, direction: number) => {
+    if (!isAdminMode || reordering) return;
+    const ids = classrooms.map(c => c.id);
+    const from = ids.indexOf(id), to = from + direction;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    await persistOrder(ids);
+  };
+
+  const persistOrder = async (ids: string[]) => {
+    setReordering(true);
+    setOrderFailed(false);
+    setOrderMessage('กำลังบันทึกลำดับ...');
+    try { await reorderClassrooms(ids); setOrderMessage('บันทึกลำดับแล้วทั้งในเครื่องและ Supabase'); }
+    catch { setOrderFailed(true); setOrderMessage('บันทึกในเครื่องแล้ว แต่ซิงค์ Supabase ไม่สำเร็จ กรุณาลองอีกครั้ง'); }
+    finally { setReordering(false); }
+  };
+
   const filtered = classrooms.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.subject.toLowerCase().includes(search.toLowerCase()) ||
+      c.subjects.join(' ').toLowerCase().includes(search.toLowerCase()) ||
       c.teacherName.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -351,6 +371,8 @@ export default function HomePage() {
             </div>
           </div>
 
+          {isAdminMode && <p role="status" className="text-xs text-zinc-500">{orderMessage || 'ใช้ปุ่ม ↑ ↓ เพื่อจัดลำดับห้องเรียน (ล้างการค้นหาก่อนจัดลำดับ)'}</p>}
+          {isAdminMode && orderFailed && <button disabled={reordering} onClick={() => persistOrder(classrooms.map(c => c.id))} className="text-xs text-blue-600 underline">ลองบันทึกลำดับลง Supabase อีกครั้ง</button>}
           {/* Cards Grid */}
           {!mounted ? (
             <div className="py-12 text-center text-xs text-zinc-400">กำลังโหลด...</div>
@@ -379,6 +401,10 @@ export default function HomePage() {
                   key={cls.id}
                   className="group bg-white dark:bg-zinc-900 rounded-2xl p-5 border border-zinc-200/80 dark:border-zinc-800 shadow-sm hover:shadow-md hover:border-blue-400 dark:hover:border-blue-600 transition-all flex flex-col justify-between space-y-4"
                 >
+                  {isAdminMode && <div className="flex gap-2">
+                    <button aria-label={`เลื่อนห้อง ${cls.name} ขึ้น`} disabled={reordering || !!search || classrooms[0]?.id === cls.id} onClick={() => moveClassroom(cls.id, -1)} className="px-3 py-1 border rounded-lg text-sm disabled:opacity-30">↑ เลื่อนขึ้น</button>
+                    <button aria-label={`เลื่อนห้อง ${cls.name} ลง`} disabled={reordering || !!search || classrooms.at(-1)?.id === cls.id} onClick={() => moveClassroom(cls.id, 1)} className="px-3 py-1 border rounded-lg text-sm disabled:opacity-30">↓ เลื่อนลง</button>
+                  </div>}
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -386,7 +412,7 @@ export default function HomePage() {
                           ห้อง {cls.name}
                         </span>
                         <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mt-2 line-clamp-1">
-                          {cls.subject}
+                          {cls.subjects.join(' • ')}
                         </h3>
                       </div>
 

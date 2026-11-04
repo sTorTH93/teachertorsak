@@ -15,6 +15,7 @@ export interface Assignment {
   maxScore: number;
   deadline: string; // ISO string
   createdAt: string;
+  subject?: string; // which subject this assignment belongs to
 }
 
 export interface Submission {
@@ -31,7 +32,8 @@ export interface Submission {
 export interface Classroom {
   id: string;
   name: string; // e.g. "ม.4/2"
-  subject: string; // e.g. "คณิตศาสตร์พื้นฐาน"
+  subject: string; // legacy single subject (kept for backward compat)
+  subjects: string[]; // multiple subjects e.g. ["วิทยาการคำนวณ", "คอมพิวเตอร์", "การออกแบบ"]
   teacherName: string;
   teacherPin: string; // PIN for teacher (edit/delete)
   repPin: string; // PIN for class rep (check only)
@@ -39,6 +41,7 @@ export interface Classroom {
   assignments: Assignment[];
   submissions: Record<string, Submission>; // key is `${assignmentId}_${studentId}`
   createdAt: string;
+  sortOrder?: number; // custom sort order for drag-reorder
 }
 
 export type UserRole = 'GUEST' | 'REP' | 'TEACHER';

@@ -1,4 +1,5 @@
 import { Classroom } from '@/types';
+import { normalizeClassroom, sortClassrooms } from './classrooms';
 import { getSupabase } from './supabase';
 
 const STORAGE_KEY = 'classroom_work_checker_data_v1';
@@ -8,6 +9,7 @@ export const INITIAL_CLASSROOMS: Classroom[] = [
     id: 'cls-m4-1',
     name: 'ม.4/1',
     subject: 'คณิตศาสตร์เพิ่มเติม (ค31201)',
+    subjects: ['คณิตศาสตร์เพิ่มเติม (ค31201)'],
     teacherName: 'ครูสมชาย ใจดี',
     teacherPin: '1234',
     repPin: '5678',
@@ -80,6 +82,8 @@ export const INITIAL_CLASSROOMS: Classroom[] = [
 // In-memory callbacks for real-time sync across components
 type SyncCallback = (classrooms: Classroom[]) => void;
 const listeners = new Set<SyncCallback>();
+let pendingCloudWrites = 0;
+let localRevision = 0;
 
 export function subscribeToClassrooms(callback: SyncCallback): () => void {
   listeners.add(callback);
@@ -100,17 +104,17 @@ function notifyListeners(classrooms: Classroom[]) {
 
 // 1. Synchronous get from local cache
 export function getClassrooms(): Classroom[] {
-  if (typeof window === 'undefined') return INITIAL_CLASSROOMS;
+  if (typeof window === 'undefined') return sortClassrooms(INITIAL_CLASSROOMS);
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_CLASSROOMS));
-      return INITIAL_CLASSROOMS;
+      return sortClassrooms(INITIAL_CLASSROOMS);
     }
-    return JSON.parse(raw);
+    return sortClassrooms(JSON.parse(raw));
   } catch (e) {
     console.error('Failed to load classrooms from storage', e);
-    return INITIAL_CLASSROOMS;
+    return sortClassrooms(INITIAL_CLASSROOMS);
   }
 }
 
@@ -123,8 +127,8 @@ export function getClassroom(id: string): Classroom | null {
 export function saveClassrooms(classrooms: Classroom[]) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(classrooms));
-    notifyListeners(classrooms);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sortClassrooms(classrooms)));
+    notifyListeners(sortClassrooms(classrooms));
   } catch (e) {
     console.error('Failed to save classrooms to localStorage', e);
   }
@@ -133,7 +137,8 @@ export function saveClassrooms(classrooms: Classroom[]) {
 // 3. Online Fetch from Supabase
 export async function syncFromCloud(): Promise<Classroom[] | null> {
   const supabase = getSupabase();
-  if (!supabase) return null;
+  if (!supabase || pendingCloudWrites > 0) return null;
+  const revision = localRevision;
 
   try {
     const { data, error } = await supabase
@@ -146,6 +151,7 @@ export async function syncFromCloud(): Promise<Classroom[] | null> {
       return null;
     }
 
+    if (pendingCloudWrites > 0 || revision !== localRevision) return null;
     if (data && data.length > 0) {
       const parsed: Classroom[] = data.map((row) => {
         const extraData = typeof row.data === 'object' ? row.data : {};
@@ -153,6 +159,8 @@ export async function syncFromCloud(): Promise<Classroom[] | null> {
           id: row.id,
           name: row.name,
           subject: row.subject,
+          subjects: extraData.subjects,
+          sortOrder: extraData.sortOrder,
           teacherName: row.teacher_name,
           teacherPin: row.teacher_pin || '1234',
           repPin: row.rep_pin || '5678',
@@ -163,8 +171,9 @@ export async function syncFromCloud(): Promise<Classroom[] | null> {
         };
       });
 
-      saveClassrooms(parsed);
-      return parsed;
+      const sorted = sortClassrooms(parsed);
+      saveClassrooms(sorted);
+      return sorted;
     } else {
       // Cloud is empty, seed it with current local classrooms
       const local = getClassrooms();
@@ -181,6 +190,8 @@ export async function syncFromCloud(): Promise<Classroom[] | null> {
 
 // 4. Save single classroom (Local + Cloud)
 export function saveClassroom(classroom: Classroom) {
+  localRevision++;
+  classroom = normalizeClassroom(classroom);
   const classrooms = getClassrooms();
   const index = classrooms.findIndex((c) => c.id === classroom.id);
   if (index >= 0) {
@@ -197,29 +208,25 @@ export function saveClassroom(classroom: Classroom) {
 }
 
 // 5. Cloud Upsert
+function cloudPayload(classroom: Classroom) {
+  classroom = normalizeClassroom(classroom);
+  return {
+    id: classroom.id, name: classroom.name, subject: classroom.subject,
+    teacher_name: classroom.teacherName, teacher_pin: classroom.teacherPin, rep_pin: classroom.repPin,
+    data: { subjects: classroom.subjects, sortOrder: classroom.sortOrder, students: classroom.students, assignments: classroom.assignments, submissions: classroom.submissions },
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export async function saveClassroomToCloud(classroom: Classroom) {
   const supabase = getSupabase();
   if (!supabase) return;
 
-  const payload = {
-    id: classroom.id,
-    name: classroom.name,
-    subject: classroom.subject,
-    teacher_name: classroom.teacherName,
-    teacher_pin: classroom.teacherPin,
-    rep_pin: classroom.repPin,
-    data: {
-      students: classroom.students,
-      assignments: classroom.assignments,
-      submissions: classroom.submissions,
-    },
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase.from('classrooms').upsert(payload);
-  if (error) {
-    console.warn('Supabase upsert error:', error.message);
-  }
+  pendingCloudWrites++;
+  try {
+    const { error } = await supabase.from('classrooms').upsert(cloudPayload(classroom));
+    if (error) throw new Error(error.message);
+  } finally { pendingCloudWrites--; }
 }
 
 // 6. Delete classroom (Local + Cloud)
@@ -255,4 +262,20 @@ export function setupRealtimeSync(): () => void {
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+// One atomic upsert prevents realtime readers from observing a half-reordered list.
+export async function reorderClassrooms(ids: string[]): Promise<void> {
+  const current = getClassrooms();
+  if (ids.length !== current.length || new Set(ids).size !== current.length || ids.some(id => !current.some(c => c.id === id))) throw new Error('รายการห้องเรียนเปลี่ยนไป กรุณาลองใหม่');
+  const ordered = ids.map((id, sortOrder) => ({ ...current.find(c => c.id === id)!, sortOrder }));
+  localRevision++;
+  saveClassrooms(ordered);
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('ยังไม่ได้ตั้งค่า Supabase');
+  pendingCloudWrites++;
+  try {
+    const { error } = await supabase.from('classrooms').upsert(ordered.map(cloudPayload));
+    if (error) throw new Error(error.message);
+  } finally { pendingCloudWrites--; }
 }
