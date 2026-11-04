@@ -23,7 +23,13 @@ import StudentsManagerView from '@/components/StudentsManagerView';
 import PinAuthModal from '@/components/PinAuthModal';
 import EditClassroomModal from '@/components/EditClassroomModal';
 import { Classroom } from '@/types';
-import { getClassroom, saveClassroom } from '@/lib/storage';
+import {
+  getClassroom,
+  saveClassroom,
+  syncFromCloud,
+  subscribeToClassrooms,
+  setupRealtimeSync,
+} from '@/lib/storage';
 
 export default function ClassroomPage() {
   const params = useParams();
@@ -38,13 +44,35 @@ export default function ClassroomPage() {
 
   useEffect(() => {
     if (!classroomId) return;
-    const data = getClassroom(classroomId);
-    if (!data) {
-      router.push('/');
-      return;
+    const initial = getClassroom(classroomId);
+    if (initial) {
+      setClassroom(initial);
     }
-    setClassroom(data);
-  }, [classroomId, router]);
+
+    // 1. Fetch latest from cloud
+    syncFromCloud().then(() => {
+      const updated = getClassroom(classroomId);
+      if (updated) {
+        setClassroom(updated);
+      }
+    });
+
+    // 2. Subscribe to local state changes
+    const unsubscribeLocal = subscribeToClassrooms((classrooms) => {
+      const match = classrooms.find((c) => c.id === classroomId);
+      if (match) {
+        setClassroom(match);
+      }
+    });
+
+    // 3. Realtime Supabase changes
+    const unsubscribeCloud = setupRealtimeSync();
+
+    return () => {
+      unsubscribeLocal();
+      unsubscribeCloud();
+    };
+  }, [classroomId]);
 
   const handleUpdateClassroom = (updated: Classroom) => {
     setClassroom(updated);

@@ -1,4 +1,5 @@
-import { Classroom, Student, Assignment, Submission, SubmissionStatus } from '@/types';
+import { Classroom } from '@/types';
+import { getSupabase } from './supabase';
 
 const STORAGE_KEY = 'classroom_work_checker_data_v1';
 
@@ -28,7 +29,7 @@ export const INITIAL_CLASSROOMS: Classroom[] = [
         title: 'ใบงานที่ 1: เซตและสมาชิกของเซต',
         description: 'ทำแบบฝึกหัดท้ายบทที่ 1 ข้อ 1-10 หน้า 18 ลงในสมุด',
         maxScore: 10,
-        deadline: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), // 2 hours from now
+        deadline: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       },
       {
@@ -37,7 +38,7 @@ export const INITIAL_CLASSROOMS: Classroom[] = [
         title: 'การบ้าน: แผนภาพเวนน์-ออยเลอร์',
         description: 'วาดแผนภาพแสดงการดำเนินการของเซต A, B, C',
         maxScore: 15,
-        deadline: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago (expired)
+        deadline: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
         createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
       },
     ],
@@ -76,6 +77,28 @@ export const INITIAL_CLASSROOMS: Classroom[] = [
   },
 ];
 
+// In-memory callbacks for real-time sync across components
+type SyncCallback = (classrooms: Classroom[]) => void;
+const listeners = new Set<SyncCallback>();
+
+export function subscribeToClassrooms(callback: SyncCallback): () => void {
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
+function notifyListeners(classrooms: Classroom[]) {
+  listeners.forEach((fn) => {
+    try {
+      fn(classrooms);
+    } catch (e) {
+      console.error('Error notifying listener:', e);
+    }
+  });
+}
+
+// 1. Synchronous get from local cache
 export function getClassrooms(): Classroom[] {
   if (typeof window === 'undefined') return INITIAL_CLASSROOMS;
   try {
@@ -91,20 +114,72 @@ export function getClassrooms(): Classroom[] {
   }
 }
 
-export function saveClassrooms(classrooms: Classroom[]) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(classrooms));
-  } catch (e) {
-    console.error('Failed to save classrooms', e);
-  }
-}
-
 export function getClassroom(id: string): Classroom | null {
   const classrooms = getClassrooms();
   return classrooms.find((c) => c.id === id) || null;
 }
 
+// 2. Save locally
+export function saveClassrooms(classrooms: Classroom[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(classrooms));
+    notifyListeners(classrooms);
+  } catch (e) {
+    console.error('Failed to save classrooms to localStorage', e);
+  }
+}
+
+// 3. Online Fetch from Supabase
+export async function syncFromCloud(): Promise<Classroom[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('classrooms')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.warn('Supabase fetch error:', error.message);
+      return null;
+    }
+
+    if (data && data.length > 0) {
+      const parsed: Classroom[] = data.map((row) => {
+        const extraData = typeof row.data === 'object' ? row.data : {};
+        return {
+          id: row.id,
+          name: row.name,
+          subject: row.subject,
+          teacherName: row.teacher_name,
+          teacherPin: row.teacher_pin || '1234',
+          repPin: row.rep_pin || '5678',
+          createdAt: row.created_at || new Date().toISOString(),
+          students: extraData.students || [],
+          assignments: extraData.assignments || [],
+          submissions: extraData.submissions || {},
+        };
+      });
+
+      saveClassrooms(parsed);
+      return parsed;
+    } else {
+      // Cloud is empty, seed it with current local classrooms
+      const local = getClassrooms();
+      for (const cls of local) {
+        await saveClassroomToCloud(cls);
+      }
+      return local;
+    }
+  } catch (e) {
+    console.error('Failed to sync from cloud:', e);
+    return null;
+  }
+}
+
+// 4. Save single classroom (Local + Cloud)
 export function saveClassroom(classroom: Classroom) {
   const classrooms = getClassrooms();
   const index = classrooms.findIndex((c) => c.id === classroom.id);
@@ -114,10 +189,70 @@ export function saveClassroom(classroom: Classroom) {
     classrooms.push(classroom);
   }
   saveClassrooms(classrooms);
+
+  // Background sync to cloud
+  saveClassroomToCloud(classroom).catch((err) =>
+    console.warn('Background cloud save failed:', err)
+  );
 }
 
+// 5. Cloud Upsert
+export async function saveClassroomToCloud(classroom: Classroom) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  const payload = {
+    id: classroom.id,
+    name: classroom.name,
+    subject: classroom.subject,
+    teacher_name: classroom.teacherName,
+    teacher_pin: classroom.teacherPin,
+    rep_pin: classroom.repPin,
+    data: {
+      students: classroom.students,
+      assignments: classroom.assignments,
+      submissions: classroom.submissions,
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from('classrooms').upsert(payload);
+  if (error) {
+    console.warn('Supabase upsert error:', error.message);
+  }
+}
+
+// 6. Delete classroom (Local + Cloud)
 export function deleteClassroom(id: string) {
   const classrooms = getClassrooms();
   const filtered = classrooms.filter((c) => c.id !== id);
   saveClassrooms(filtered);
+
+  // Background delete on cloud
+  const supabase = getSupabase();
+  if (supabase) {
+    supabase.from('classrooms').delete().eq('id', id).then();
+  }
+}
+
+// 7. Setup Realtime Listener
+export function setupRealtimeSync(): () => void {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
+
+  const channel = supabase
+    .channel('public:classrooms')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'classrooms' },
+      () => {
+        // When any change happens in Supabase, refetch immediately
+        syncFromCloud();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

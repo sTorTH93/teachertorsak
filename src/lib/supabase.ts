@@ -1,18 +1,65 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const ENV_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const ENV_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const SUPABASE_URL_KEY = 'classcheck_supabase_url';
+export const SUPABASE_ANON_KEY = 'classcheck_supabase_key';
 
-export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+let cachedClient: SupabaseClient | null = null;
+let cachedKey = '';
 
-// SQL schema generator script that user can run in Supabase SQL Editor
-export const SUPABASE_SETUP_SQL = `-- รันคำสั่งนี้ใน Supabase SQL Editor เพื่อสร้างตารางสำหรับระบบเช็คงาน
+export function getSupabaseConfig(): { url: string; key: string; isConfigured: boolean } {
+  if (ENV_URL && ENV_KEY) {
+    return { url: ENV_URL, key: ENV_KEY, isConfigured: true };
+  }
 
--- 1. ตารางห้องเรียน
+  if (typeof window !== 'undefined') {
+    const localUrl = localStorage.getItem(SUPABASE_URL_KEY) || '';
+    const localKey = localStorage.getItem(SUPABASE_ANON_KEY) || '';
+    if (localUrl && localKey) {
+      return { url: localUrl, key: localKey, isConfigured: true };
+    }
+  }
+
+  return { url: '', key: '', isConfigured: false };
+}
+
+export function getSupabase(): SupabaseClient | null {
+  const { url, key, isConfigured } = getSupabaseConfig();
+  if (!isConfigured) return null;
+
+  const currentKey = `${url}_${key}`;
+  if (cachedClient && cachedKey === currentKey) {
+    return cachedClient;
+  }
+
+  try {
+    cachedClient = createClient(url, key);
+    cachedKey = currentKey;
+    return cachedClient;
+  } catch (e) {
+    console.error('Failed to initialize Supabase client:', e);
+    return null;
+  }
+}
+
+export function saveCustomSupabase(url: string, key: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SUPABASE_URL_KEY, url.trim());
+  localStorage.setItem(SUPABASE_ANON_KEY, key.trim());
+  cachedClient = null;
+}
+
+export function clearCustomSupabase() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(SUPABASE_URL_KEY);
+  localStorage.removeItem(SUPABASE_ANON_KEY);
+  cachedClient = null;
+}
+
+export const SUPABASE_SETUP_SQL = `-- คัดลอกโค้ดนี้ไปรันใน Supabase -> SQL Editor เพื่อสร้างตารางห้องเรียนสำหรับแอป
+
 CREATE TABLE IF NOT EXISTS classrooms (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -21,13 +68,22 @@ CREATE TABLE IF NOT EXISTS classrooms (
   teacher_pin TEXT NOT NULL DEFAULT '1234',
   rep_pin TEXT NOT NULL DEFAULT '5678',
   data JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 2. เปิดใช้งาน Realtime (ถ้าต้องการซิงค์สดระหว่างครูกับตัวแทน)
-ALTER PUBLICATION supabase_realtime ADD TABLE classrooms;
-
--- 3. กำหนดสิทธิ์ RLS ให้เข้าถึงได้
+-- ปิดการจำกัดสิทธิ์ เพื่อให้ทุกคนในห้องเข้าถึงได้
 ALTER TABLE classrooms ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read and write" ON classrooms FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public all" ON classrooms;
+CREATE POLICY "Allow public all" ON classrooms FOR ALL USING (true) WITH CHECK (true);
+
+-- เปิดใช้งาน Realtime ซิงค์ข้อมูลสดอัตโนมัติ
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'classrooms'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE classrooms;
+  END IF;
+END $$;
 `;

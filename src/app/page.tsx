@@ -19,7 +19,14 @@ import {
 import Navbar from '@/components/Navbar';
 import CreateClassroomModal from '@/components/CreateClassroomModal';
 import { Classroom } from '@/types';
-import { getClassrooms, saveClassrooms, deleteClassroom } from '@/lib/storage';
+import {
+  getClassrooms,
+  saveClassrooms,
+  deleteClassroom,
+  syncFromCloud,
+  subscribeToClassrooms,
+  setupRealtimeSync,
+} from '@/lib/storage';
 
 export default function HomePage() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
@@ -30,6 +37,26 @@ export default function HomePage() {
   useEffect(() => {
     setMounted(true);
     setClassrooms(getClassrooms());
+
+    // 1. Fetch latest from cloud
+    syncFromCloud().then((cloudData) => {
+      if (cloudData) {
+        setClassrooms(cloudData);
+      }
+    });
+
+    // 2. Subscribe to internal state updates
+    const unsubscribeLocal = subscribeToClassrooms((updated) => {
+      setClassrooms(updated);
+    });
+
+    // 3. Subscribe to Supabase Realtime changes
+    const unsubscribeCloud = setupRealtimeSync();
+
+    return () => {
+      unsubscribeLocal();
+      unsubscribeCloud();
+    };
   }, []);
 
   const handleCreated = (newClass: Classroom) => {
